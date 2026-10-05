@@ -7,7 +7,7 @@ class ComplexityAgent:
         print("[ComplexityAgent] Analyzing request complexity...")
 
         # Placeholder logic
-        state["complexity"] = "medium"
+        state["complexity"] = "medium"  # This could be determined based on the request content, length, etc.   
 
         print(
             f"[ComplexityAgent] Complexity: "

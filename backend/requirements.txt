@@ -4,4 +4,5 @@ pydantic
 pydantic-settings
 python-dotenv
 langgraph
+litellm
 SQLAlchemy>=2.0,<3.0
