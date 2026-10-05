@@ -5,7 +5,6 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from app.orchestration.graph import llm_graph
-from app.providers import generate_response
 
 
 router = APIRouter()
@@ -55,23 +54,22 @@ def chat(request: ChatRequest):
         "latency": 0.0,
     }
 
-    # Run LangGraph orchestrator
-    result = llm_graph.invoke(initial_state)
-
-    selected_model = result.get("selected_model", "local")
-
     try:
-        # Generate the actual LLM response
-        response_text = generate_response(
-            model=selected_model,
-            prompt=request.message,
-            history=initial_state["conversation_history"],
-        )
-
+        # Generate calls the routed model inside the graph.
+        result = llm_graph.invoke(initial_state)
     except Exception as exc:
         raise HTTPException(
             status_code=502,
             detail=f"LLM provider error: {str(exc)}",
+        )
+
+    selected_model = result.get("selected_model", "cheap")
+    response_text = result.get("response") or ""
+
+    if not response_text:
+        raise HTTPException(
+            status_code=502,
+            detail="LLM provider returned an empty response",
         )
 
     return ChatResponse(
