@@ -1,10 +1,11 @@
 from typing import List, Optional
 from uuid import uuid4
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from app.orchestration.graph import llm_graph
+from app.providers import generate_response
 
 
 router = APIRouter()
@@ -37,7 +38,6 @@ class ChatResponse(BaseModel):
 
 @router.post("", response_model=ChatResponse)
 def chat(request: ChatRequest):
-
     request_id = str(uuid4())
 
     # Convert API request into LangGraph state
@@ -55,17 +55,32 @@ def chat(request: ChatRequest):
         "latency": 0.0,
     }
 
-    # Run LangGraph
+    # Run LangGraph orchestrator
     result = llm_graph.invoke(initial_state)
+
+    selected_model = result.get("selected_model", "local")
+
+    try:
+        # Generate the actual LLM response
+        response_text = generate_response(
+            model=selected_model,
+            prompt=request.message,
+            history=initial_state["conversation_history"],
+        )
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"LLM provider error: {str(exc)}",
+        )
 
     return ChatResponse(
         request_id=request_id,
-        status="accepted",
-        message=request.message,
+        status="success",
+        message=response_text,
         note=(
-            f"LangGraph executed successfully. "
-            f"Complexity: {result.get('complexity')}, "
-            f"Model: {result.get('selected_model')}, "
-            f"Cache hit: {result.get('cache_hit')}"
+            f"LangGraph selected model: {selected_model}. "
+            f"Complexity: {result.get('complexity')}. "
+            f"Cache hit: {result.get('cache_hit')}."
         ),
     )
