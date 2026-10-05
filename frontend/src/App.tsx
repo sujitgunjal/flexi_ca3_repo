@@ -5,7 +5,7 @@ import Dashboard from "./pages/Dashboard";
 import Evaluation from "./pages/Evaluation";
 import Models from "./pages/Models";
 import Requests from "./pages/Requests";
-import { getMetrics, getModels, getRequests } from "./services/api";
+import { API_BASE_URL, getMetrics, getModels, getRequests } from "./services/api";
 import type { GatewayMetrics, ModelInfo, RequestRecord } from "./types";
 import "./styles.css";
 
@@ -59,7 +59,7 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <Navbar activePage={activePage} onNavigate={setActivePage} onRefresh={() => void refreshData()} isRefreshing={isRefreshing} />
+      <Navbar activePage={activePage} onNavigate={setActivePage} onRefresh={() => void refreshData()} isRefreshing={isRefreshing} endpoint={API_BASE_URL} />
       <main className="main-content">
         {activePage === "Dashboard" && <Dashboard metrics={metrics} requests={requests} isLoading={isLoading} metricsError={metricsError} requestsError={requestsError} onOpenRequests={() => setActivePage("Requests")} />}
         {activePage === "Models" && <Models models={models} isLoading={isLoading} error={modelsError} />}

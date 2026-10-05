@@ -23,9 +23,10 @@ interface NavbarProps {
 	onNavigate: (page: PageKey) => void;
 	onRefresh: () => void;
 	isRefreshing: boolean;
+	endpoint: string;
 }
 
-export function Navbar({ activePage, onNavigate, onRefresh, isRefreshing }: NavbarProps) {
+export function Navbar({ activePage, onNavigate, onRefresh, isRefreshing, endpoint }: NavbarProps) {
 	return (
 		<>
 			<aside className="sidebar">
@@ -57,7 +58,7 @@ export function Navbar({ activePage, onNavigate, onRefresh, isRefreshing }: Navb
 					<span className="environment-dot" />
 					<div>
 						<span className="sidebar__environment">LOCAL GATEWAY</span>
-						<span className="sidebar__endpoint">localhost:8000</span>
+						<span className="sidebar__endpoint">{endpoint.replace(/^https?:\/\//, "")}</span>
 					</div>
 				</div>
 			</aside>
