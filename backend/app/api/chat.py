@@ -1,9 +1,13 @@
+from time import perf_counter
 from typing import List, Optional
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy.exc import SQLAlchemyError
 
+from app.database.database import SessionLocal
+from app.database.models import RequestLog
 from app.orchestration.graph import llm_graph
 
 
@@ -38,6 +42,7 @@ class ChatResponse(BaseModel):
 @router.post("", response_model=ChatResponse)
 def chat(request: ChatRequest):
     request_id = str(uuid4())
+    started_at = perf_counter()
 
     # Convert API request into LangGraph state
     initial_state = {
@@ -71,6 +76,27 @@ def chat(request: ChatRequest):
             status_code=502,
             detail="LLM provider returned an empty response",
         )
+
+    try:
+        with SessionLocal() as session:
+            session.add(
+                RequestLog(
+                    query=request.message,
+                    complexity=result.get("complexity"),
+                    selected_model=selected_model,
+                    final_model=result.get("final_model", selected_model),
+                    latency_ms=(perf_counter() - started_at) * 1000,
+                    cache_hit=bool(result.get("cache_hit", False)),
+                    escalated=bool(result.get("escalation", False)),
+                    fallback_used=bool(result.get("fallback_used", False)),
+                )
+            )
+            session.commit()
+    except SQLAlchemyError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="The response was generated, but the request could not be recorded.",
+        ) from exc
 
     return ChatResponse(
         request_id=request_id,

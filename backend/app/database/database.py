@@ -5,7 +5,7 @@ from pathlib import Path
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine, URL, make_url
-from sqlalchemy.orm import DeclarativeBase, sessionmaker
+from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 
 class Base(DeclarativeBase):
@@ -33,6 +33,11 @@ def _create_engine(database_url: str | URL) -> Engine:
 
 engine = _create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+
+def get_db():
+    with SessionLocal() as session:
+        yield session
 
 
 def initialize_database(database_engine: Engine = engine) -> None:
