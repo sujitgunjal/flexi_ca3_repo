@@ -12,6 +12,7 @@ def generate_with_cloud(
     model: str,
     prompt: str,
     history: list[dict] | None = None,
+    timeout: float | None = None,
 ) -> str:
 
     messages = []
@@ -33,11 +34,16 @@ def generate_with_cloud(
     else:
         raise ValueError(f"Unknown cloud tier: {model}")
 
+    options = {}
+    if timeout is not None:
+        options["timeout"] = timeout
+
     response = completion(
         model=cloud_model,
         messages=messages,
         api_key=NVIDIA_API_KEY,
         api_base=NVIDIA_API_BASE,
+        **options,
     )
 
     return response.choices[0].message.content
