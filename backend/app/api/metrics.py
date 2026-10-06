@@ -1,21 +1,42 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
+from app.schemas.metrics import MetricsSummary, RequestLogResponse, RequestMetrics
+from app.services.metrics_service import (
+    get_recent_requests,
+    get_request,
+    get_summary_metrics,
+    log_request,
+)
 
 router = APIRouter()
 
 
-@router.get("")
-def get_metrics():
-    return {
-        "total_requests": 0,
-        "cache_hits": 0,
-        "cache_misses": 0,
-        "llm_calls": 0,
-        "tokens_input": 0,
-        "tokens_output": 0,
-        "estimated_cost": 0.0,
-        "average_latency_ms": 0.0,
-        "context_reduction_percent": 0.0,
-        "escalations": 0,
-        "fallbacks": 0,
-    }
+class MetricsLogResponse(BaseModel):
+    success: bool
+    request_id: int
+
+
+@router.post("/log", response_model=MetricsLogResponse, status_code=201)
+def create_metrics_log(metrics: RequestMetrics):
+    record = log_request(metrics)
+    return MetricsLogResponse(success=True, request_id=record.id)
+
+
+@router.get("/recent", response_model=list[RequestLogResponse])
+def recent_metrics():
+    return get_recent_requests()
+
+
+@router.get("", response_model=MetricsSummary)
+@router.get("/summary", response_model=MetricsSummary)
+def summary_metrics():
+    return get_summary_metrics()
+
+
+@router.get("/{request_id}", response_model=RequestLogResponse)
+def metrics_by_id(request_id: int):
+    record = get_request(request_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Request metrics not found")
+    return record
