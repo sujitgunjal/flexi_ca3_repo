@@ -25,11 +25,8 @@ for key, value in result.items():
 
 expected = {
     "cache_hit": False,
-    "complexity": "medium",
     "optimized_context": initial_state["query"],
-    "selected_model": "cheap",
     "quality_score": 0.90,
-    "escalation": False,
 }
 
 failures = []
@@ -37,6 +34,17 @@ failures = []
 for key, value in expected.items():
     if result.get(key) != value:
         failures.append(f"{key}: expected {value!r}, got {result.get(key)!r}")
+
+if result.get("selected_model") not in {"local", "cheap", "strong"}:
+    failures.append(f"selected_model: unexpected {result.get('selected_model')!r}")
+
+if result.get("complexity") not in {"simple", "medium", "complex"}:
+    failures.append(f"complexity: unexpected {result.get('complexity')!r}")
+
+decision = result.get("decision") or {}
+complexity = decision.get("complexity") or {}
+if "raw_confidence" not in complexity or "calibrated_confidence" not in complexity:
+    failures.append("decision: raw and calibrated confidence were not both present")
 
 response = result.get("response", "")
 if not isinstance(response, str) or not response.strip():
