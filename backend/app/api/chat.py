@@ -9,7 +9,6 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.database.database import SessionLocal
 from app.database.models import RequestLog
 from app.orchestration.graph import llm_graph
-from app.providers.registry import get_tier
 
 
 router = APIRouter()
@@ -38,7 +37,6 @@ class ChatResponse(BaseModel):
     status: str
     message: str
     note: str
-    decision: dict | None = None
 
 
 @router.post("", response_model=ChatResponse)
@@ -100,26 +98,13 @@ def chat(request: ChatRequest):
             detail="The response was generated, but the request could not be recorded.",
         ) from exc
 
-    decision = result.get("decision") or {}
-    complexity = decision.get("complexity", {})
-    try:
-        answer_model = get_tier(selected_model).model
-    except ValueError:
-        answer_model = selected_model
-
     return ChatResponse(
         request_id=request_id,
         status="success",
         message=response_text,
-        decision=decision or None,
         note=(
-            f"Decision engine: {decision.get('provider', 'n/a')} "
-            f"({decision.get('decision_model', 'n/a')}). "
-            f"Answer model: {selected_model} ({answer_model}). "
-            f"Complexity: {result.get('complexity')} "
-            f"(raw confidence {complexity.get('raw_confidence')}, "
-            f"calibrated confidence {complexity.get('calibrated_confidence')}). "
-            f"Uncertain: {result.get('uncertain')}. "
-            f"Reason: {result.get('routing_reason')}."
+            f"LangGraph selected model: {selected_model}. "
+            f"Complexity: {result.get('complexity')}. "
+            f"Cache hit: {result.get('cache_hit')}."
         ),
     )

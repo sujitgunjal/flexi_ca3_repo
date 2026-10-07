@@ -1,9 +1,0 @@
-{
-  "confidence_threshold": 0.55,
-  "models": {
-    "simple_low_reasoning": "local",
-    "medium": "cheap",
-    "complex_or_high_reasoning": "strong",
-    "uncertain_fallback": "cheap"
-  }
-}

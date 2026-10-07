@@ -31,7 +31,3 @@ NVIDIA_API_BASE = os.getenv(
     "NVIDIA_API_BASE",
     "https://integrate.api.nvidia.com/v1",
 )
-
-PROVIDER_TIMEOUT_SECONDS = float(
-    os.getenv("PROVIDER_TIMEOUT_SECONDS", "8")
-)
