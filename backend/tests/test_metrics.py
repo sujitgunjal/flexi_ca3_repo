@@ -28,6 +28,9 @@ def isolated_database(monkeypatch):
     factory = sessionmaker(bind=engine, autoflush=False, autocommit=False)
     monkeypatch.setattr(metrics_service, "SessionLocal", factory)
     monkeypatch.setattr(metrics_service, "initialize_database", lambda: Base.metadata.create_all(engine))
+    from app.services import trace_service
+    monkeypatch.setattr(trace_service, "SessionLocal", factory)
+    monkeypatch.setattr(trace_service, "initialize_database", lambda: Base.metadata.create_all(engine))
     yield engine
     Base.metadata.drop_all(engine)
     engine.dispose()
@@ -120,6 +123,14 @@ def test_database_logging_retrieval_and_aggregation(isolated_database):
         "escalation_count": 1,
         "fallback_count": 1,
         "model_usage_count": {"cheap": 1, "strong": 1},
+        "requests": {"total": 3},
+        "cache": {"hits": 1, "misses": 1, "hit_rate": 1 / 3, "api_calls_avoided": 1, "estimated_cost_saved": 0.01},
+        "tokens": {"input": 100, "output": 50, "total": 450, "average_input": 100 / 3,
+                       "average_output": 50 / 3, "average_total": 150, "token_reduction_percent": None},
+        "latency": {"average_ms": 200.0},
+        "cost": {"total": 0.04, "average_per_request": 0.02, "by_model": {"cheap": 0.01, "strong": 0.03},
+                 "cache_miss_cost": 0.03, "estimated_saved": 0.01, "cost_reduction_percent": None},
+        "models": {"usage_counts": {"cheap": 1, "strong": 1}, "usage_percentages": {"cheap": 1 / 3 * 100, "strong": 1 / 3 * 100}},
     }
 
 
@@ -129,6 +140,14 @@ def test_empty_summary(isolated_database):
         "average_cost": 0, "cache_hits": 0, "cache_hit_rate": 0,
         "average_quality_score": None, "escalation_count": 0,
         "fallback_count": 0, "model_usage_count": {},
+        "requests": {"total": 0},
+        "cache": {"hits": 0, "misses": 0, "hit_rate": 0, "api_calls_avoided": 0, "estimated_cost_saved": 0.0},
+        "tokens": {"input": 0, "output": 0, "total": 0, "average_input": 0, "average_output": 0,
+                   "average_total": 0, "token_reduction_percent": None},
+        "latency": {"average_ms": 0},
+        "cost": {"total": 0, "average_per_request": 0, "by_model": {}, "cache_miss_cost": 0,
+                 "estimated_saved": 0.0, "cost_reduction_percent": None},
+        "models": {"usage_counts": {}, "usage_percentages": {}},
     }
 
 
@@ -148,3 +167,37 @@ def test_metrics_api_log_recent_lookup_and_validation(isolated_database, monkeyp
     assert client.get("/metrics").json()["total_requests"] == 1
     assert client.get("/metrics/99999").status_code == 404
     assert client.post("/metrics/log", json={"query": "bad", "input_tokens": -2}).status_code == 422
+
+
+def test_cache_metrics_and_cost_savings(isolated_database):
+    for index in range(10):
+        record = metrics_service.log_request({"query": str(index), "selected_model": "cheap-model",
+            "input_tokens": 100, "output_tokens": 50, "estimated_cost": 0.01})
+        metrics_service.record_cache_event(record.id, index < 3, cache_key=f"key-{index}", lookup_latency_ms=1.5)
+    summary = metrics_service.get_summary_metrics(baseline_tokens=2000, baseline_cost=0.2)
+    assert summary["cache"]["hits"] == 3
+    assert summary["cache"]["misses"] == 7
+    assert summary["cache"]["hit_rate"] == 0.3
+    assert summary["cache"]["api_calls_avoided"] == 3
+    assert summary["cost"]["estimated_saved"] == 0.03
+    assert summary["tokens"]["total"] == 1500
+    assert summary["tokens"]["token_reduction_percent"] == 25
+    assert summary["cost"]["cost_reduction_percent"] == 50
+    assert summary["models"]["usage_counts"] == {"cheap-model": 10}
+    assert summary["models"]["usage_percentages"] == {"cheap-model": 100}
+
+
+def test_trace_service_chronological_metadata_and_api(isolated_database):
+    from app.services import trace_service
+
+    record = metrics_service.log_request({"query": "trace test"})
+    trace_service.record_event(record.id, "gateway", "request_received", {"path": "/chat"})
+    trace_service.record_event(record.id, "cache", "cache_miss", {"cache_key": "abc"})
+    events = trace_service.get_trace(record.id)
+    assert [event["event"] for event in events] == ["request_received", "cache_miss"]
+    assert events[1]["metadata"] == {"cache_key": "abc"}
+    client = TestClient(metrics_app)
+    response = client.get(f"/metrics/{record.id}/trace")
+    assert response.status_code == 200
+    assert response.json()[1]["stage"] == "cache"
+    assert client.get("/metrics/99999/trace").status_code == 404

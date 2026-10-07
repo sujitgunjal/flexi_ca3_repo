@@ -3,7 +3,7 @@
 from collections.abc import Mapping
 from typing import Any
 
-from sqlalchemy import case, func, select
+from sqlalchemy import case, func, select, update
 from sqlalchemy.orm import Session
 
 from app.database.database import SessionLocal, initialize_database
@@ -17,16 +17,11 @@ def derive_metrics(metrics: RequestMetrics) -> RequestMetrics:
     values = metrics.model_dump()
     if values["total_tokens"] is None and values["input_tokens"] is not None and values["output_tokens"] is not None:
         values["total_tokens"] = values["input_tokens"] + values["output_tokens"]
-    before = values["context_before_tokens"]
-    after = values["context_after_tokens"]
+    before, after = values["context_before_tokens"], values["context_after_tokens"]
     if values["context_reduction_percent"] is None and before is not None and after is not None:
         values["context_reduction_percent"] = 0.0 if before == 0 else ((before - after) / before) * 100
     if values["estimated_cost"] is None:
-        values["estimated_cost"] = calculate_cost(
-            values["final_model"] or values["selected_model"],
-            values["input_tokens"],
-            values["output_tokens"],
-        )
+        values["estimated_cost"] = calculate_cost(values["final_model"] or values["selected_model"], values["input_tokens"], values["output_tokens"])
     return RequestMetrics.model_validate(values)
 
 
@@ -34,10 +29,7 @@ def _validated_metrics(metrics: RequestMetrics | Mapping[str, Any]) -> RequestMe
     return metrics if isinstance(metrics, RequestMetrics) else RequestMetrics.model_validate(metrics)
 
 
-def log_request(
-    metrics: RequestMetrics | Mapping[str, Any], *, session: Session | None = None
-) -> RequestLog:
-    """Validate, derive and persist one request; owns its session by default."""
+def log_request(metrics: RequestMetrics | Mapping[str, Any], *, session: Session | None = None) -> RequestLog:
     record_data = derive_metrics(_validated_metrics(metrics)).model_dump()
     initialize_database()
     owns_session = session is None
@@ -48,6 +40,26 @@ def log_request(
         db.commit()
         db.refresh(record)
         return record
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        if owns_session:
+            db.close()
+
+
+def record_cache_event(request_id: int, cache_hit: bool, cache_key: str | None = None,
+                       lookup_latency_ms: float | None = None, *, session: Session | None = None) -> bool:
+    """Attach cache observations to an existing request log; return whether it exists."""
+    initialize_database()
+    owns_session = session is None
+    db = session or SessionLocal()
+    try:
+        result = db.execute(update(RequestLog).where(RequestLog.id == request_id).values(
+            cache_hit=cache_hit, cache_key=cache_key, cache_lookup_latency_ms=lookup_latency_ms
+        ))
+        db.commit()
+        return result.rowcount > 0
     except Exception:
         db.rollback()
         raise
@@ -68,36 +80,61 @@ def get_request(request_id: int) -> RequestLog | None:
         return db.get(RequestLog, request_id)
 
 
-def get_summary_metrics() -> dict[str, Any]:
-    """Aggregate stored rows in SQL without loading request records in bulk."""
+def get_summary_metrics(baseline_tokens: int | None = None, baseline_cost: float | None = None) -> dict[str, Any]:
+    """Aggregate measurements, leaving unobserved quantities at zero/null."""
     initialize_database()
     with SessionLocal() as db:
-        row = db.execute(
-            select(
-                func.count(RequestLog.id),
-                func.coalesce(func.sum(RequestLog.total_tokens), 0),
-                func.avg(RequestLog.latency_ms),
-                func.avg(RequestLog.estimated_cost),
-                func.coalesce(func.sum(case((RequestLog.cache_hit.is_(True), 1), else_=0)), 0),
-                func.avg(RequestLog.quality_score),
-                func.coalesce(func.sum(case((RequestLog.escalated.is_(True), 1), else_=0)), 0),
-                func.coalesce(func.sum(case((RequestLog.fallback_used.is_(True), 1), else_=0)), 0),
-            )
-        ).one()
-        usage_rows = db.execute(
-            select(func.coalesce(RequestLog.final_model, RequestLog.selected_model), func.count(RequestLog.id))
-            .where(func.coalesce(RequestLog.final_model, RequestLog.selected_model).is_not(None))
-            .group_by(func.coalesce(RequestLog.final_model, RequestLog.selected_model))
-        ).all()
-    return {
-        "total_requests": row[0],
-        "total_tokens": row[1],
-        "average_latency_ms": float(row[2] or 0),
-        "average_cost": float(row[3] or 0),
-        "cache_hits": row[4],
-        "cache_hit_rate": (row[4] / row[0]) if row[0] else 0,
-        "average_quality_score": float(row[5]) if row[5] is not None else None,
-        "escalation_count": row[6],
-        "fallback_count": row[7],
-        "model_usage_count": {model: count for model, count in usage_rows},
+        records = list(db.scalars(select(RequestLog)))
+    total = len(records)
+    hits = sum(record.cache_hit is True for record in records)
+    misses = sum(record.cache_hit is False for record in records)
+    inputs = sum(record.input_tokens or 0 for record in records)
+    outputs = sum(record.output_tokens or 0 for record in records)
+    tokens = sum(record.total_tokens or 0 for record in records)
+    latency_values = [r.latency_ms for r in records if r.latency_ms is not None]
+    costs = [r.estimated_cost for r in records if r.estimated_cost is not None]
+    model_usage: dict[str, int] = {}
+    cost_by_model: dict[str, float] = {}
+    miss_cost = 0.0
+    saved_cost = 0.0
+    for record in records:
+        model = record.final_model or record.selected_model
+        if model:
+            model_usage[model] = model_usage.get(model, 0) + 1
+            if record.estimated_cost is not None:
+                cost_by_model[model] = cost_by_model.get(model, 0.0) + record.estimated_cost
+        cost = record.estimated_cost
+        if cost is None:
+            cost = calculate_cost(model, record.input_tokens, record.output_tokens)
+        if record.cache_hit is True and cost is not None:
+            saved_cost += cost
+        if record.cache_hit is False and record.estimated_cost is not None:
+            miss_cost += record.estimated_cost
+    percentages = {model: (count / total * 100 if total else 0) for model, count in model_usage.items()}
+    summary = {
+        "total_requests": total,
+        "total_tokens": tokens,
+        "average_latency_ms": sum(latency_values) / len(latency_values) if latency_values else 0,
+        "average_cost": sum(costs) / len(costs) if costs else 0,
+        "cache_hits": hits,
+        "cache_hit_rate": hits / total if total else 0,
+        "average_quality_score": (sum(r.quality_score for r in records if r.quality_score is not None) /
+                                  sum(r.quality_score is not None for r in records)) if any(r.quality_score is not None for r in records) else None,
+        "escalation_count": sum(r.escalated is True for r in records),
+        "fallback_count": sum(r.fallback_used is True for r in records),
+        "model_usage_count": model_usage,
+        "requests": {"total": total},
+        "cache": {"hits": hits, "misses": misses, "hit_rate": hits / total if total else 0,
+                  "api_calls_avoided": hits, "estimated_cost_saved": saved_cost},
+        "tokens": {"input": inputs, "output": outputs, "total": tokens,
+                   "average_input": inputs / total if total else 0,
+                   "average_output": outputs / total if total else 0,
+                   "average_total": tokens / total if total else 0,
+                   "token_reduction_percent": ((baseline_tokens - tokens) / baseline_tokens * 100) if baseline_tokens else None},
+        "latency": {"average_ms": sum(latency_values) / len(latency_values) if latency_values else 0},
+        "cost": {"total": sum(costs), "average_per_request": sum(costs) / len(costs) if costs else 0,
+                 "by_model": cost_by_model, "cache_miss_cost": miss_cost, "estimated_saved": saved_cost,
+                 "cost_reduction_percent": ((baseline_cost - sum(costs)) / baseline_cost * 100) if baseline_cost else None},
+        "models": {"usage_counts": model_usage, "usage_percentages": percentages},
     }
+    return summary
