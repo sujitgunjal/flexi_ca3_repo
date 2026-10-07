@@ -61,7 +61,7 @@ export default function App() {
     <div className="app-shell">
       <Navbar activePage={activePage} onNavigate={setActivePage} onRefresh={() => void refreshData()} isRefreshing={isRefreshing} endpoint={API_BASE_URL} />
       <main className="main-content">
-        {activePage === "Dashboard" && <Dashboard metrics={metrics} requests={requests} isLoading={isLoading} metricsError={metricsError} requestsError={requestsError} onOpenRequests={() => setActivePage("Requests")} />}
+        {activePage === "Dashboard" && <Dashboard metrics={metrics} models={models} requests={requests} isLoading={isLoading} metricsError={metricsError} requestsError={requestsError} onOpenRequests={() => setActivePage("Requests")} />}
         {activePage === "Models" && <Models models={models} isLoading={isLoading} error={modelsError} />}
         {activePage === "Requests" && <Requests requests={requests} isLoading={isLoading} error={requestsError} />}
         {activePage === "Analytics" && <Analytics />}

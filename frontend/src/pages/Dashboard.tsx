@@ -1,9 +1,10 @@
 import { ArrowRight, BrainCircuit, CircleHelp, Clock3, Coins, Database, Hash, Layers3, Network, Route, ShieldCheck } from "lucide-react";
 import { MetricCard } from "../components/MetricCard";
-import type { GatewayMetrics, RequestRecord } from "../types";
+import type { GatewayMetrics, ModelInfo, RequestRecord } from "../types";
 
 interface DashboardProps {
 	metrics: GatewayMetrics | null;
+	models: ModelInfo[];
 	requests: RequestRecord[];
 	isLoading: boolean;
 	metricsError: string | null;
@@ -38,6 +39,7 @@ function metricNote(value: number, total: number): string {
 
 export default function Dashboard({
 	metrics,
+	models,
 	requests,
 	isLoading,
 	metricsError,
@@ -46,6 +48,8 @@ export default function Dashboard({
 }: DashboardProps) {
 	const total = metrics?.total_requests ?? 0;
 	const cacheHits = metrics?.cache_hits ?? 0;
+	const modelUsage = getModelUsage(requests, models);
+	const knownModelRequests = modelUsage.reduce((sum, item) => sum + item.count, 0);
 
 	return (
 		<div className="page-content">
@@ -105,6 +109,65 @@ export default function Dashboard({
 				/>
 			</section>
 
+			<section className="dashboard-summary-grid" aria-label="Usage, cost, and request summary">
+				<article className="summary-panel">
+					<div className="summary-panel__heading">
+						<div><div className="eyebrow">ROUTING MIX</div><h2>Model usage</h2></div>
+						<span className="summary-panel__meta">{integer.format(knownModelRequests)} routed</span>
+					</div>
+					{knownModelRequests ? (
+						<div className="usage-list">
+							{modelUsage.map(({ tier, count, tone }) => {
+								const percentage = (count / knownModelRequests) * 100;
+								return (
+									<div className="usage-row" key={tier}>
+										<div className="usage-row__label"><span>{tier}</span><strong>{percentage.toFixed(0)}%</strong></div>
+										<div className="usage-bar" role="progressbar" aria-label={`${tier} model usage`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(percentage)}>
+											<span className={`usage-bar__fill usage-bar__fill--${tone}`} style={{ width: `${percentage}%` }} />
+										</div>
+									</div>
+								);
+							})}
+						</div>
+					) : (
+						<div className="summary-empty">{isLoading ? "Loading request usage…" : "No model usage data recorded yet."}</div>
+					)}
+					{knownModelRequests > 0 && knownModelRequests < requests.length && (
+						<p className="summary-panel__note">Percentages include requests matched to a configured model tier.</p>
+					)}
+				</article>
+
+				<article className="summary-panel">
+					<div className="summary-panel__heading">
+						<div><div className="eyebrow">SPEND</div><h2>Cost</h2></div>
+						<span className="summary-panel__meta">USD</span>
+					</div>
+					<div className="cost-comparison">
+						<div className="cost-comparison__row">
+							<span>Baseline</span>
+							<strong>{metrics ? "Not reported" : isLoading ? "—" : "Unavailable"}</strong>
+						</div>
+						<div className="cost-comparison__row cost-comparison__row--gateway">
+							<span>Your Gateway</span>
+							<strong>{metrics ? currency.format(metrics.estimated_cost) : isLoading ? "—" : "Unavailable"}</strong>
+						</div>
+					</div>
+					<p className="summary-panel__note">Gateway cost is reported by the API. A baseline cost is not currently available.</p>
+				</article>
+
+				<article className="summary-panel">
+					<div className="summary-panel__heading">
+						<div><div className="eyebrow">TRAFFIC</div><h2>Requests</h2></div>
+						<span className="summary-panel__meta">ALL TIME</span>
+					</div>
+					<dl className="request-summary">
+						<div><dt>Total</dt><dd>{metrics ? integer.format(total) : isLoading ? "—" : "Unavailable"}</dd></div>
+						<div><dt>Cache Hits</dt><dd>{metrics ? integer.format(cacheHits) : isLoading ? "—" : "Unavailable"}</dd></div>
+						<div><dt>Escalations</dt><dd>{metrics ? integer.format(metrics.escalations) : isLoading ? "—" : "Unavailable"}</dd></div>
+					</dl>
+				</article>
+			</section>
+
 			<section className="flow-section" aria-labelledby="flow-title">
 				<div className="flow-heading">
 					<div>
@@ -158,6 +221,25 @@ export default function Dashboard({
 			</div>
 		</div>
 	);
+}
+
+function getModelUsage(requests: RequestRecord[], models: ModelInfo[]) {
+	const tiers = [
+		{ tier: "Local", tone: "green" },
+		{ tier: "Cheap", tone: "blue" },
+		{ tier: "Strong", tone: "amber" },
+	] as const;
+	const counts = new Map(tiers.map(({ tier }) => [tier.toLowerCase(), 0]));
+
+	for (const request of requests) {
+		const recordedModel = request.final_model || request.selected_model;
+		if (!recordedModel) continue;
+		const configuredModel = models.find((model) => model.id.toLowerCase() === recordedModel.toLowerCase());
+		const tier = (configuredModel?.tier || recordedModel).toLowerCase();
+		if (counts.has(tier)) counts.set(tier, (counts.get(tier) ?? 0) + 1);
+	}
+
+	return tiers.map(({ tier, tone }) => ({ tier, tone, count: counts.get(tier.toLowerCase()) ?? 0 }));
 }
 
 function ActivityIcon() {
