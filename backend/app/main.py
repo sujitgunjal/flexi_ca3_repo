@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.chat import router as chat_router
+from app.api.decisions import router as decisions_router
 from app.api.health import router as health_router
 from app.api.metrics import router as metrics_router
 from app.api.models import router as models_router
@@ -47,6 +48,12 @@ app.include_router(
     chat_router,
     prefix="/chat",
     tags=["Chat"],
+)
+
+app.include_router(
+    decisions_router,
+    prefix="/decisions",
+    tags=["Decisions"],
 )
 
 app.include_router(
