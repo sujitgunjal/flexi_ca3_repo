@@ -3,7 +3,7 @@
 import os
 from pathlib import Path
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import Engine, URL, make_url
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
@@ -41,6 +41,14 @@ def initialize_database(database_engine: Engine = engine) -> None:
     from app.database import models  # noqa: F401
 
     Base.metadata.create_all(bind=database_engine)
+    # ``create_all`` intentionally leaves existing tables alone. Add only the
+    # two optional cache observation columns introduced after Day 2.
+    columns = {column["name"] for column in inspect(database_engine).get_columns("request_logs")}
+    with database_engine.begin() as connection:
+        if "cache_key" not in columns:
+            connection.execute(text("ALTER TABLE request_logs ADD COLUMN cache_key VARCHAR(256)"))
+        if "cache_lookup_latency_ms" not in columns:
+            connection.execute(text("ALTER TABLE request_logs ADD COLUMN cache_lookup_latency_ms FLOAT"))
 
 
 def test_connection(database_engine: Engine = engine) -> bool:

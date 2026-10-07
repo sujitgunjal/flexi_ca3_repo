@@ -27,7 +27,7 @@ Example request data:
 | Model Router | `selected_model` | `selected_model` |
 | Generation/provider | Final model used | `final_model` |
 | Usage/cost measurement | Input/output/total token counts; estimated cost; latency in milliseconds | `input_tokens`, `output_tokens`, `total_tokens`, `estimated_cost`, `latency_ms` |
-| Cache | Cache hit boolean | `cache_hit` |
+| Cache | Cache hit boolean, optional key and lookup duration | `cache_hit`, `cache_key`, `cache_lookup_latency_ms` |
 | Quality Agent | `quality_score`, `quality_status` | `quality_score`, `quality_status` |
 | Escalation | `escalated` boolean | `escalated` |
 | Fallback | `fallback_used` boolean | `fallback_used` |
@@ -37,3 +37,5 @@ Example request data:
 The log row has an automatically generated `id`. `total_tokens` is derived from input and output counts when both are known and the caller did not supply it. Context reduction is `((before - after) / before) * 100`; a zero `before` value produces `0`. Explicit derived values are preserved. Do not invent unavailable values: keep them null. The Day 2 metrics service does not connect or change the current orchestration graph.
 
 All fields other than `query` are optional. Validation requires non-negative token counts, latency, and supplied cost; quality score must be between 1 and 5. `estimated_cost` can be supplied directly, or estimated using configurable demo placeholder rates in `backend/app/services/cost_service.py`. These rates are not real provider prices; unknown models yield no estimate. See `metrics_api.md` for endpoints and aggregation definitions.
+
+Trace events are stored separately in `request_trace_events` and linked to the request ID. Use `app.services.trace_service.record_event` to record `stage`, `event`, and JSON-compatible metadata; integrations should not access ORM models directly.

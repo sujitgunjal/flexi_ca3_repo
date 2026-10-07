@@ -1,4 +1,4 @@
-from sqlalchemy import inspect
+from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
 from app.database.database import (
@@ -29,6 +29,19 @@ def test_request_log_database_round_trip():
             assert retrieved.query == "What is Docker?"
             assert retrieved.complexity == "simple"
             assert retrieved.selected_model is None
+    finally:
+        Base.metadata.drop_all(bind=test_engine)
+        test_engine.dispose()
+
+
+def test_database_initialization_adds_optional_cache_columns_to_existing_table():
+    test_engine = _create_engine("sqlite:///:memory:")
+    try:
+        with test_engine.begin() as connection:
+            connection.execute(text("CREATE TABLE request_logs (id INTEGER PRIMARY KEY, query TEXT NOT NULL)"))
+        initialize_database(test_engine)
+        columns = {column["name"] for column in inspect(test_engine).get_columns("request_logs")}
+        assert {"cache_key", "cache_lookup_latency_ms"} <= columns
     finally:
         Base.metadata.drop_all(bind=test_engine)
         test_engine.dispose()

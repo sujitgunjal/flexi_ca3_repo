@@ -46,6 +46,27 @@ print(record.id)
 - `GET /metrics/recent` returns the latest 100 records, newest first.
 - `GET /metrics/{request_id}` returns one record or `404` when it is missing.
 - `GET /metrics/summary` returns aggregate metrics.
+- `GET /metrics/{request_id}/trace` returns trace events in chronological order.
+
+## Cache and trace integration
+
+The cache implementation can report observations through the service without accessing ORM models:
+
+```python
+from app.services.metrics_service import record_cache_event
+
+record_cache_event(request_id, cache_hit=True, cache_key="abc123", lookup_latency_ms=2.4)
+```
+
+Future agents can record flexible JSON metadata the same way:
+
+```python
+from app.services.trace_service import record_event
+
+record_event(request_id, "routing", "model_selected", {"model": "cheap-model", "reason": "medium_complexity"})
+```
+
+Trace stages include `gateway`, `cache`, `complexity`, `context`, `routing`, `model`, `quality`, `escalation`, and `fallback`. Events are free-form strings, with common names such as `request_received`, `cache_hit`, `cache_miss`, `complexity_classified`, `context_optimized`, `model_selected`, `model_completed`, `quality_pass`, `quality_fail`, `escalation`, and `fallback`. Metadata is JSON-compatible.
 
 ## Fields and calculations
 
@@ -55,4 +76,6 @@ When both input and output counts exist, total tokens are their sum unless the c
 
 The cost utility uses configurable rates per million tokens. Current values are clearly marked demo placeholders in `backend/app/services/cost_service.py`, not real provider prices. Unknown models or missing token counts produce no calculated cost. A supplied `estimated_cost` is kept.
 
-The summary reports request count, summed known token counts, means over recorded latency/cost/quality values, cache hit count and hit rate (`cache hits / all logged requests`), escalation and fallback counts, and usage counts grouped by final model when available, otherwise selected model. Missing optional values do not invent measurements; an empty dataset returns zero counts/means and a null quality average.
+The summary retains the Day 2 flat fields and adds groups: `requests`, `cache`, `tokens`, `latency`, `cost`, and `models`. Cache misses count explicit false observations; unknown cache values are excluded from hit/miss counts but remain in the overall hit-rate denominator. API calls avoided equal cache hits. Estimated cache savings sum each hit's recorded request cost or estimate it with the configurable placeholder rates; unknown model/token data adds no estimate. Token averages divide sums by all requests. Supply optional `baseline_tokens` and `baseline_cost` query parameters to `/metrics/summary` (or `/metrics`) for reduction percentages. A zero baseline yields `null`. Pricing rates are placeholders, not provider quotes.
+
+For example, a chronological trace can contain `gateway/request_received`, `cache/cache_miss`, `complexity/complexity_classified`, and `routing/model_selected`, with per-event metadata.

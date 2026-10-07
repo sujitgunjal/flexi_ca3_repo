@@ -1,6 +1,7 @@
 """Validation and response schemas for request metrics."""
 
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -22,6 +23,8 @@ class RequestMetrics(BaseModel):
     latency_ms: float | None = Field(default=None, ge=0)
     estimated_cost: float | None = Field(default=None, ge=0)
     cache_hit: bool | None = None
+    cache_key: str | None = Field(default=None, max_length=256)
+    cache_lookup_latency_ms: float | None = Field(default=None, ge=0)
     context_before_tokens: int | None = Field(default=None, ge=0)
     context_after_tokens: int | None = Field(default=None, ge=0)
     context_reduction_percent: float | None = None
@@ -58,3 +61,17 @@ class MetricsSummary(BaseModel):
     escalation_count: int
     fallback_count: int
     model_usage_count: dict[str, int]
+    requests: dict[str, int]
+    cache: dict[str, float | int]
+    tokens: dict[str, Any]
+    latency: dict[str, float]
+    cost: dict[str, Any]
+    models: dict[str, dict[str, float | int]]
+
+
+class TraceEventResponse(BaseModel):
+    request_id: int
+    timestamp: datetime
+    stage: str
+    event: str
+    metadata: dict[str, Any]
