@@ -6,3 +6,4 @@ python-dotenv
 langgraph
 litellm
 SQLAlchemy>=2.0,<3.0
+redis>=5.0,<7.0

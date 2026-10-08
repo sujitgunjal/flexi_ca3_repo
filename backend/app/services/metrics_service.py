@@ -49,15 +49,18 @@ def log_request(metrics: RequestMetrics | Mapping[str, Any], *, session: Session
 
 
 def record_cache_event(request_id: int, cache_hit: bool, cache_key: str | None = None,
-                       lookup_latency_ms: float | None = None, *, session: Session | None = None) -> bool:
+                       lookup_latency_ms: float | None = None, *, fallback_used: bool | None = None,
+                       session: Session | None = None) -> bool:
     """Attach cache observations to an existing request log; return whether it exists."""
     initialize_database()
     owns_session = session is None
     db = session or SessionLocal()
     try:
-        result = db.execute(update(RequestLog).where(RequestLog.id == request_id).values(
-            cache_hit=cache_hit, cache_key=cache_key, cache_lookup_latency_ms=lookup_latency_ms
-        ))
+        values = {"cache_hit": cache_hit, "cache_key": cache_key,
+                  "cache_lookup_latency_ms": lookup_latency_ms}
+        if fallback_used is not None:
+            values["fallback_used"] = fallback_used
+        result = db.execute(update(RequestLog).where(RequestLog.id == request_id).values(**values))
         db.commit()
         return result.rowcount > 0
     except Exception:

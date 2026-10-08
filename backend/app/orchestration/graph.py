@@ -31,7 +31,10 @@ def build_graph():
 
     # Connect nodes
     graph.add_edge(START, "cache")
-    graph.add_edge("cache", "complexity")
+    graph.add_conditional_edges(
+        "cache", lambda state: END if state.get("cached_response") else "complexity",
+        {"complexity": "complexity", END: END},
+    )
     graph.add_edge("complexity", "context")
     graph.add_edge("context", "router")
     graph.add_edge("router", "generate")

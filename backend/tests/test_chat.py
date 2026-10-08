@@ -10,6 +10,13 @@ from app.api import chat as chat_api
 def create_test_client(monkeypatch):
     captured_states = []
 
+    class TestCache:
+        def set(self, *_args, **_kwargs):
+            return None
+
+    monkeypatch.setattr(chat_api, "cache", TestCache())
+    monkeypatch.setattr(chat_api, "log_request", lambda _metrics: SimpleNamespace(id=1))
+
     def invoke(state):
         captured_states.append(state)
         return {

@@ -15,6 +15,10 @@ class RequestState(TypedDict, total=False):
     decision: dict[str, Any]
 
     cache_hit: bool
+    cache_key: str
+    metrics_request_id: int
+    cache_unavailable: bool
+    cached_response: bool
 
     quality_score: float
     escalation: bool

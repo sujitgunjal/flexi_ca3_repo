@@ -6,6 +6,8 @@ from pydantic import BaseModel, Field
 
 from app.orchestration.graph import llm_graph
 from app.providers.registry import get_tier
+from app.cache.redis_cache import RedisError, cache, generate_cache_key
+from app.services.metrics_service import log_request
 
 
 router = APIRouter()
@@ -42,6 +44,7 @@ class ChatResponse(BaseModel):
 def chat(request: ChatRequest):
     request_id = str(uuid4())
     conversation_id = request.conversation_id or str(uuid4())
+    metric_record = log_request({"query": request.message})
 
     # Convert API request into LangGraph state
     initial_state = {
@@ -56,6 +59,7 @@ def chat(request: ChatRequest):
         "cache_hit": False,
         "cost": 0.0,
         "latency": 0.0,
+        "metrics_request_id": metric_record.id,
     }
 
     try:
@@ -75,6 +79,25 @@ def chat(request: ChatRequest):
             status_code=502,
             detail="LLM provider returned an empty response",
         )
+
+    cache_key = result.get("cache_key") or generate_cache_key(request.message)
+    if not result.get("cache_hit") and not result.get("cache_unavailable"):
+        try:
+            cache.set(cache_key, {
+                "response": response_text,
+                "selected_model": result.get("selected_model", "cheap"),
+                "decision": result.get("decision"),
+                "complexity": result.get("complexity"),
+                "uncertain": result.get("uncertain"),
+                "routing_reason": result.get("routing_reason"),
+            })
+        except RedisError:
+            # Cache write failure does not turn a successful model response into an error.
+            import logging
+            logging.getLogger(__name__).exception("Redis cache write failed; response returned uncached")
+            from app.services.metrics_service import record_cache_event
+            record_cache_event(metric_record.id, False, cache_key,
+                               fallback_used=True)
 
     decision = result.get("decision") or {}
     complexity = decision.get("complexity", {})
