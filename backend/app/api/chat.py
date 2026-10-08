@@ -31,6 +31,7 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     request_id: str
+    conversation_id: str
     status: str
     message: str
     note: str
@@ -40,6 +41,7 @@ class ChatResponse(BaseModel):
 @router.post("", response_model=ChatResponse)
 def chat(request: ChatRequest):
     request_id = str(uuid4())
+    conversation_id = request.conversation_id or str(uuid4())
 
     # Convert API request into LangGraph state
     initial_state = {
@@ -83,6 +85,7 @@ def chat(request: ChatRequest):
 
     return ChatResponse(
         request_id=request_id,
+        conversation_id=conversation_id,
         status="success",
         message=response_text,
         decision=decision or None,
