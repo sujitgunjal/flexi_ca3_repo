@@ -35,3 +35,9 @@ NVIDIA_API_BASE = os.getenv(
 PROVIDER_TIMEOUT_SECONDS = float(
     os.getenv("PROVIDER_TIMEOUT_SECONDS", "8")
 )
+
+# Redis is an optional response cache. The application continues without it.
+REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+REDIS_DB = int(os.getenv("REDIS_DB", "0"))
+REDIS_TTL = int(os.getenv("REDIS_TTL", "3600"))
