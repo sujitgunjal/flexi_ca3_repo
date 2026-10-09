@@ -9,6 +9,12 @@ class RequestState(TypedDict, total=False):
     reasoning: str
     context_requirement: str
     optimized_context: str
+    optimized_history: list[dict[str, Any]]
+    original_token_count: int
+    optimized_token_count: int
+    messages_selected: int
+    context_reduction_percent: float
+    embedding_source: str
     selected_model: str
     routing_reason: str
     uncertain: bool

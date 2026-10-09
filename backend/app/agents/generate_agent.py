@@ -6,8 +6,11 @@ class GenerateAgent:
 
     def run(self, state: RequestState) -> RequestState:
         model = state.get("selected_model", "cheap")
-        prompt = state.get("optimized_context") or state.get("query", "")
-        history = state.get("conversation_history") or []
+        prompt = state.get("query", "")
+        if "optimized_history" in state:
+            history = state.get("optimized_history") or []
+        else:
+            history = state.get("conversation_history") or []
 
         print(f"[GenerateAgent] Generating response with model: {model}")
 

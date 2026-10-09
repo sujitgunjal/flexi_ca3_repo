@@ -120,6 +120,10 @@ def chat(request: ChatRequest):
             f"(raw confidence {complexity.get('raw_confidence')}, "
             f"calibrated confidence {complexity.get('calibrated_confidence')}). "
             f"Uncertain: {result.get('uncertain')}. "
-            f"Reason: {result.get('routing_reason')}."
+            f"Reason: {result.get('routing_reason')}. "
+            f"Context: {result.get('messages_selected', 0)} messages, "
+            f"{result.get('original_token_count', 0)} -> "
+            f"{result.get('optimized_token_count', 0)} tokens "
+            f"({result.get('context_reduction_percent', 0)}% reduction)."
         ),
     )

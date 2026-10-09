@@ -41,3 +41,16 @@ REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
 REDIS_DB = int(os.getenv("REDIS_DB", "0"))
 REDIS_TTL = int(os.getenv("REDIS_TTL", "3600"))
+
+# Local embedding model used to rank conversation history.
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "mxbai-embed-large")
+CONTEXT_TOKEN_LIMITS = {
+    "low": int(os.getenv("CONTEXT_TOKEN_LIMIT_LOW", "80")),
+    "medium": int(os.getenv("CONTEXT_TOKEN_LIMIT_MEDIUM", "240")),
+    "high": int(os.getenv("CONTEXT_TOKEN_LIMIT_HIGH", "800")),
+}
+CONTEXT_MESSAGE_CAPS = {
+    "low": int(os.getenv("CONTEXT_MESSAGE_CAP_LOW", "2")),
+    "medium": int(os.getenv("CONTEXT_MESSAGE_CAP_MEDIUM", "4")),
+    "high": int(os.getenv("CONTEXT_MESSAGE_CAP_HIGH", "8")),
+}
