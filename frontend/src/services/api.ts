@@ -51,10 +51,68 @@ function isRequestRecord(value: unknown): value is RequestRecord {
 
 export async function getMetrics(): Promise<GatewayMetrics> {
 	const payload: unknown = await getJson<unknown>("/metrics");
-	if (!isGatewayMetrics(payload)) {
-		throw new Error("/metrics returned an unsupported response format.");
+	if (isGatewayMetrics(payload)) {
+		return payload;
 	}
-	return payload;
+	if (isMetricsSummary(payload)) {
+		return {
+			total_requests: payload.total_requests,
+			cache_hits: payload.cache.hits,
+			cache_misses: payload.cache.misses,
+			llm_calls: payload.cache.misses,
+			tokens_input: payload.tokens.input,
+			tokens_output: payload.tokens.output,
+			estimated_cost: payload.cost.total,
+			average_latency_ms: payload.latency.average_ms,
+			context_reduction_percent: payload.context.overall_reduction_percent ?? 0,
+			escalations: payload.escalation_count,
+			fallbacks: payload.fallback_count,
+			context: payload.context,
+		};
+	}
+	throw new Error("/metrics returned an unsupported response format.");
+}
+
+interface MetricsSummaryPayload {
+	total_requests: number;
+	cache: { hits: number; misses: number };
+	tokens: { input: number; output: number };
+	cost: { total: number };
+	latency: { average_ms: number };
+	escalation_count: number;
+	fallback_count: number;
+	context: {
+		requests_with_metrics: number;
+		total_original_tokens: number;
+		total_optimized_tokens: number;
+		total_tokens_saved: number;
+		overall_reduction_percent: number | null;
+	};
+}
+
+function isMetricsSummary(value: unknown): value is MetricsSummaryPayload {
+	if (!value || typeof value !== "object") return false;
+	const summary = value as Record<string, unknown>;
+	const cache = summary.cache as Record<string, unknown> | undefined;
+	const tokens = summary.tokens as Record<string, unknown> | undefined;
+	const cost = summary.cost as Record<string, unknown> | undefined;
+	const latency = summary.latency as Record<string, unknown> | undefined;
+	const context = summary.context as Record<string, unknown> | undefined;
+	return typeof summary.total_requests === "number"
+		&& typeof summary.escalation_count === "number"
+		&& typeof summary.fallback_count === "number"
+		&& typeof cache?.hits === "number"
+		&& typeof cache?.misses === "number"
+		&& typeof tokens?.input === "number"
+		&& typeof tokens?.output === "number"
+		&& typeof cost?.total === "number"
+		&& typeof latency?.average_ms === "number"
+		&& typeof context?.requests_with_metrics === "number"
+		&& typeof context?.total_original_tokens === "number"
+		&& typeof context?.total_optimized_tokens === "number"
+		&& typeof context?.total_tokens_saved === "number"
+		&& (typeof context?.overall_reduction_percent === "number"
+			|| context?.overall_reduction_percent === null);
 }
 
 export function getModels(): Promise<ModelInfo[]> {
