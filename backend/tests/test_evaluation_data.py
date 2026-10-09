@@ -12,7 +12,8 @@ sys.path.insert(0, str(REPO_ROOT))
 EXPECTED_COLUMNS = [
     "request_id", "category", "query", "cache_hit", "selected_model", "final_model",
     "input_tokens", "output_tokens", "total_tokens", "latency_ms", "estimated_cost",
-    "context_before_tokens", "context_after_tokens", "context_reduction_percent", "quality_score",
+    "context_before_tokens", "context_after_tokens", "context_tokens_saved",
+    "context_reduction_percent", "quality_score",
     "quality_status", "escalated", "fallback_used", "baseline_model", "gateway_model",
     "baseline_input_tokens", "gateway_input_tokens", "baseline_output_tokens",
     "gateway_output_tokens", "baseline_total_tokens", "gateway_total_tokens",
