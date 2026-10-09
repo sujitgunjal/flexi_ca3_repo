@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class RequestMetrics(BaseModel):
@@ -40,6 +40,13 @@ class RequestMetrics(BaseModel):
             raise ValueError("query must not be blank")
         return value
 
+    @model_validator(mode="after")
+    def context_counts_must_not_expand(self):
+        before, after = self.context_before_tokens, self.context_after_tokens
+        if before is not None and after is not None and after > before:
+            raise ValueError("context_after_tokens cannot exceed context_before_tokens")
+        return self
+
 
 class RequestLogResponse(RequestMetrics):
     id: int
@@ -67,6 +74,7 @@ class MetricsSummary(BaseModel):
     latency: dict[str, float]
     cost: dict[str, Any]
     models: dict[str, dict[str, float | int]]
+    context: dict[str, int | float | None]
 
 
 class TraceEventResponse(BaseModel):

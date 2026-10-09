@@ -12,14 +12,27 @@ from app.schemas.metrics import RequestMetrics
 from app.services.cost_service import calculate_cost
 
 
+def calculate_context_reduction(original_tokens: int | None, optimized_tokens: int | None) -> float | None:
+    """Calculate percent of context tokens removed; reject invalid counts."""
+    if original_tokens is None or optimized_tokens is None:
+        return None
+    if original_tokens < 0 or optimized_tokens < 0:
+        raise ValueError("Context token counts must be non-negative")
+    if optimized_tokens > original_tokens:
+        raise ValueError("Optimized context token count cannot exceed original token count")
+    if original_tokens == 0:
+        return None
+    return ((original_tokens - optimized_tokens) / original_tokens) * 100
+
+
 def derive_metrics(metrics: RequestMetrics) -> RequestMetrics:
-    """Fill derived values only when the caller did not supply them."""
+    """Fill derived values, recalculating context reduction from available counts."""
     values = metrics.model_dump()
     if values["total_tokens"] is None and values["input_tokens"] is not None and values["output_tokens"] is not None:
         values["total_tokens"] = values["input_tokens"] + values["output_tokens"]
     before, after = values["context_before_tokens"], values["context_after_tokens"]
-    if values["context_reduction_percent"] is None and before is not None and after is not None:
-        values["context_reduction_percent"] = 0.0 if before == 0 else ((before - after) / before) * 100
+    if before is not None and after is not None:
+        values["context_reduction_percent"] = calculate_context_reduction(before, after)
     if values["estimated_cost"] is None:
         values["estimated_cost"] = calculate_cost(values["final_model"] or values["selected_model"], values["input_tokens"], values["output_tokens"])
     return RequestMetrics.model_validate(values)
@@ -75,7 +88,7 @@ def record_context_event(
     request_id: int,
     before_tokens: int,
     after_tokens: int,
-    reduction_percent: float,
+    reduction_percent: float | None = None,
     *,
     session: Session | None = None,
 ) -> bool:
@@ -90,7 +103,7 @@ def record_context_event(
             .values(
                 context_before_tokens=before_tokens,
                 context_after_tokens=after_tokens,
-                context_reduction_percent=reduction_percent,
+                context_reduction_percent=calculate_context_reduction(before_tokens, after_tokens),
             )
         )
         db.commit()
@@ -146,6 +159,15 @@ def get_summary_metrics(baseline_tokens: int | None = None, baseline_cost: float
         if record.cache_hit is False and record.estimated_cost is not None:
             miss_cost += record.estimated_cost
     percentages = {model: (count / total * 100 if total else 0) for model, count in model_usage.items()}
+    context_records = [r for r in records if r.context_before_tokens is not None and
+                       r.context_after_tokens is not None and
+                       r.context_before_tokens >= 0 and r.context_after_tokens >= 0 and
+                       r.context_after_tokens <= r.context_before_tokens]
+    context_before = sum(r.context_before_tokens for r in context_records)
+    context_after = sum(r.context_after_tokens for r in context_records)
+    context_percentages = [calculate_context_reduction(r.context_before_tokens, r.context_after_tokens)
+                           for r in context_records]
+    context_percentages = [value for value in context_percentages if value is not None]
     summary = {
         "total_requests": total,
         "total_tokens": tokens,
@@ -171,5 +193,16 @@ def get_summary_metrics(baseline_tokens: int | None = None, baseline_cost: float
                  "by_model": cost_by_model, "cache_miss_cost": miss_cost, "estimated_saved": saved_cost,
                  "cost_reduction_percent": ((baseline_cost - sum(costs)) / baseline_cost * 100) if baseline_cost else None},
         "models": {"usage_counts": model_usage, "usage_percentages": percentages},
+        "context": {
+            "requests_with_metrics": len(context_records),
+            "total_original_tokens": context_before,
+            "total_optimized_tokens": context_after,
+            "total_tokens_saved": context_before - context_after,
+            "average_original_tokens": context_before / len(context_records) if context_records else 0,
+            "average_optimized_tokens": context_after / len(context_records) if context_records else 0,
+            "overall_reduction_percent": calculate_context_reduction(context_before, context_after),
+            "average_per_request_reduction_percent": (sum(context_percentages) / len(context_percentages)
+                                                       if context_percentages else None),
+        },
     }
     return summary

@@ -52,7 +52,13 @@ def test_metrics_validation_and_optional_fields():
         RequestMetrics(query="valid", context_reduction_percent=nan)
 
 
-def test_derived_metrics_and_supplied_values_are_preserved():
+@pytest.mark.parametrize("field", ["context_before_tokens", "context_after_tokens"])
+def test_context_token_counts_must_be_non_negative(field):
+    with pytest.raises(ValidationError, match="greater than or equal to 0"):
+        RequestMetrics(query="valid", **{field: -1})
+
+
+def test_derived_metrics_and_context_counts_are_source_of_truth():
     derived = metrics_service.derive_metrics(RequestMetrics(
         query="usage", input_tokens=100, output_tokens=50,
         context_before_tokens=1000, context_after_tokens=400,
@@ -65,14 +71,28 @@ def test_derived_metrics_and_supplied_values_are_preserved():
         context_reduction_percent=42,
     ))
     assert explicit.total_tokens == 123
-    assert explicit.context_reduction_percent == 42
+    assert explicit.context_reduction_percent == 60
 
 
 def test_context_reduction_zero_before_is_safe():
     result = metrics_service.derive_metrics(RequestMetrics(
         query="zero", context_before_tokens=0, context_after_tokens=0,
     ))
-    assert result.context_reduction_percent == 0
+    assert result.context_reduction_percent is None
+
+
+@pytest.mark.parametrize("before,after,expected", [
+    (5000, 1500, 70.0), (1000, 400, 60.0), (100, 100, 0.0), (100, 0, 100.0),
+    (None, 0, None), (0, 0, None),
+])
+def test_calculate_context_reduction(before, after, expected):
+    assert metrics_service.calculate_context_reduction(before, after) == expected
+
+
+@pytest.mark.parametrize("before,after", [(-1, 0), (1, -1), (100, 101)])
+def test_calculate_context_reduction_rejects_invalid_counts(before, after):
+    with pytest.raises(ValueError, match="non-negative|cannot exceed"):
+        metrics_service.calculate_context_reduction(before, after)
 
 
 def test_cost_utility_and_explicit_estimate():
@@ -131,6 +151,9 @@ def test_database_logging_retrieval_and_aggregation(isolated_database):
         "cost": {"total": 0.04, "average_per_request": 0.02, "by_model": {"cheap": 0.01, "strong": 0.03},
                  "cache_miss_cost": 0.03, "estimated_saved": 0.01, "cost_reduction_percent": None},
         "models": {"usage_counts": {"cheap": 1, "strong": 1}, "usage_percentages": {"cheap": 1 / 3 * 100, "strong": 1 / 3 * 100}},
+        "context": {"requests_with_metrics": 0, "total_original_tokens": 0, "total_optimized_tokens": 0,
+                    "total_tokens_saved": 0, "average_original_tokens": 0, "average_optimized_tokens": 0,
+                    "overall_reduction_percent": None, "average_per_request_reduction_percent": None},
     }
 
 
@@ -148,6 +171,9 @@ def test_empty_summary(isolated_database):
         "cost": {"total": 0, "average_per_request": 0, "by_model": {}, "cache_miss_cost": 0,
                  "estimated_saved": 0.0, "cost_reduction_percent": None},
         "models": {"usage_counts": {}, "usage_percentages": {}},
+        "context": {"requests_with_metrics": 0, "total_original_tokens": 0, "total_optimized_tokens": 0,
+                    "total_tokens_saved": 0, "average_original_tokens": 0, "average_optimized_tokens": 0,
+                    "overall_reduction_percent": None, "average_per_request_reduction_percent": None},
     }
 
 
@@ -164,9 +190,39 @@ def test_metrics_api_log_recent_lookup_and_validation(isolated_database, monkeyp
     request_id = logged["request_id"]
     assert client.get("/metrics/recent").json()[0]["id"] == request_id
     assert client.get(f"/metrics/{request_id}").json()["total_tokens"] == 250
+    assert client.get(f"/metrics/{request_id}").json()["context_before_tokens"] is None
     assert client.get("/metrics").json()["total_requests"] == 1
     assert client.get("/metrics/99999").status_code == 404
     assert client.post("/metrics/log", json={"query": "bad", "input_tokens": -2}).status_code == 422
+    assert client.post("/metrics/log", json={"query": "negative original", "context_before_tokens": -1}).status_code == 422
+    assert client.post("/metrics/log", json={"query": "negative optimized", "context_after_tokens": -1}).status_code == 422
+    assert client.post("/metrics/log", json={"query": "expanded", "context_before_tokens": 10,
+                                             "context_after_tokens": 11}).status_code == 422
+    context_response = client.post("/metrics/log", json={"query": "context", "context_before_tokens": 5000,
+                                                           "context_after_tokens": 1500,
+                                                           "context_reduction_percent": 12})
+    assert context_response.status_code == 201
+    context_id = context_response.json()["request_id"]
+    retrieved_context = client.get(f"/metrics/{context_id}").json()
+    assert (retrieved_context["context_before_tokens"], retrieved_context["context_after_tokens"],
+            retrieved_context["context_reduction_percent"]) == (5000, 1500, 70)
+    summary_context = client.get("/metrics/summary").json()["context"]
+    assert summary_context["requests_with_metrics"] == 1
+    assert summary_context["total_tokens_saved"] == 3500
+
+
+def test_context_event_and_analytics(isolated_database):
+    first = metrics_service.log_request({"query": "a"})
+    second = metrics_service.log_request({"query": "b", "context_before_tokens": 1000,
+                                          "context_after_tokens": 400, "context_reduction_percent": 1})
+    assert metrics_service.record_context_event(first.id, 5000, 1500, 12)
+    assert metrics_service.get_request(first.id).context_reduction_percent == 70
+    context = metrics_service.get_summary_metrics()["context"]
+    assert context == {"requests_with_metrics": 2, "total_original_tokens": 6000,
+                       "total_optimized_tokens": 1900, "total_tokens_saved": 4100,
+                       "average_original_tokens": 3000, "average_optimized_tokens": 950,
+                       "overall_reduction_percent": 68.33333333333333,
+                       "average_per_request_reduction_percent": 65.0}
 
 
 def test_cache_metrics_and_cost_savings(isolated_database):
