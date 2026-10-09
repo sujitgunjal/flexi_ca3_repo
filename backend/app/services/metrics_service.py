@@ -71,6 +71,38 @@ def record_cache_event(request_id: int, cache_hit: bool, cache_key: str | None =
             db.close()
 
 
+def record_context_event(
+    request_id: int,
+    before_tokens: int,
+    after_tokens: int,
+    reduction_percent: float,
+    *,
+    session: Session | None = None,
+) -> bool:
+    """Store context-optimization measurements on an existing request log."""
+    initialize_database()
+    owns_session = session is None
+    db = session or SessionLocal()
+    try:
+        result = db.execute(
+            update(RequestLog)
+            .where(RequestLog.id == request_id)
+            .values(
+                context_before_tokens=before_tokens,
+                context_after_tokens=after_tokens,
+                context_reduction_percent=reduction_percent,
+            )
+        )
+        db.commit()
+        return result.rowcount > 0
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        if owns_session:
+            db.close()
+
+
 def get_recent_requests(limit: int = 100) -> list[RequestLog]:
     initialize_database()
     with SessionLocal() as db:
