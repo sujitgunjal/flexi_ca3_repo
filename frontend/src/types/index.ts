@@ -10,6 +10,15 @@ export interface GatewayMetrics {
 	context_reduction_percent: number;
 	escalations: number;
 	fallbacks: number;
+	context?: ContextMetrics;
+}
+
+export interface ContextMetrics {
+	requests_with_metrics: number;
+	total_original_tokens: number;
+	total_optimized_tokens: number;
+	total_tokens_saved: number;
+	overall_reduction_percent: number | null;
 }
 
 export interface ModelInfo {

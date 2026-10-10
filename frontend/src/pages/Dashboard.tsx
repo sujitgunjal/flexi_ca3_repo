@@ -1,4 +1,5 @@
 import { ArrowRight, BrainCircuit, CircleHelp, Clock3, Coins, Database, Hash, Layers3, Network, Route, ShieldCheck } from "lucide-react";
+import { ContextReduction } from "../components/ContextReduction";
 import { MetricCard } from "../components/MetricCard";
 import type { GatewayMetrics, ModelInfo, RequestRecord } from "../types";
 
@@ -166,6 +167,10 @@ export default function Dashboard({
 						<div><dt>Escalations</dt><dd>{metrics ? integer.format(metrics.escalations) : isLoading ? "—" : "Unavailable"}</dd></div>
 					</dl>
 				</article>
+			</section>
+
+			<section className="section-block" aria-label="Context optimization">
+				<ContextReduction context={metrics?.context ?? null} isLoading={isLoading} />
 			</section>
 
 			<section className="flow-section" aria-labelledby="flow-title">
